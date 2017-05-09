@@ -6,14 +6,15 @@
 package dhcp4
 
 import (
-	"net"
-	"time"
+    "net"
+    "time"
 )
 
 type Option struct {
-	Code  OptionCode
-	Value []byte
+    Code	OptionCode
+    Value	[]byte
 }
+
 type OptionCode byte
 type OpCode byte
 type MessageType byte // Option 53
@@ -33,11 +34,7 @@ func (p Packet) YIAddr() net.IP { return net.IP(p[16:20]) }
 func (p Packet) SIAddr() net.IP { return net.IP(p[20:24]) }
 func (p Packet) GIAddr() net.IP { return net.IP(p[24:28]) }
 func (p Packet) CHAddr() net.HardwareAddr {
-	hLen := p.HLen()
-	if hLen > 16 { // Prevent chaddr exceeding p boundary
-		hLen = 16
-	}
-	return net.HardwareAddr(p[28 : 28+hLen]) // max endPos 44
+	return net.HardwareAddr(p[28 : 28+p.HLen()]) // max endPos 44
 }
 
 // 192 bytes of zeros BOOTP legacy
@@ -124,7 +121,24 @@ func (p Packet) ParseOptions() Options {
 		options[OptionCode(opts[0])] = opts[2 : 2+size]
 		opts = opts[2+size:]
 	}
+	
 	return options
+}
+
+func ParseOption82(b []byte) (o map[uint8][]byte) {
+    o = make(map[uint8][]byte)
+    
+    i := 0
+    for {
+	l := int(b[i+1])
+	o[uint8(b[i])] = b[i+2:i+2+l]
+	
+	if i += (l + 2); i >= len(b) {
+	    break
+	}
+    }
+    
+    return
 }
 
 func NewPacket(opCode OpCode) Packet {
@@ -172,16 +186,25 @@ func ReplyPacket(req Packet, mt MessageType, serverId, yIAddr net.IP, leaseDurat
 	p := NewPacket(BootReply)
 	p.SetXId(req.XId())
 	p.SetFlags(req.Flags())
-	p.SetYIAddr(yIAddr)
+	
+	if yIAddr != nil {
+	    p.SetYIAddr(yIAddr)
+	}
+	
 	p.SetGIAddr(req.GIAddr())
 	p.SetCHAddr(req.CHAddr())
 	p.SetSecs(req.Secs())
 	p.AddOption(OptionDHCPMessageType, []byte{byte(mt)})
 	p.AddOption(OptionServerIdentifier, []byte(serverId))
-	p.AddOption(OptionIPAddressLeaseTime, OptionsLeaseTime(leaseDuration))
-	for _, o := range options {
-		p.AddOption(o.Code, o.Value)
+	
+	if leaseDuration > 0 {
+	    p.AddOption(OptionIPAddressLeaseTime, OptionsLeaseTime(leaseDuration))
 	}
+	
+	for _, o := range options {
+	    p.AddOption(o.Code, o.Value)
+	}
+	
 	p.PadToMinSize()
 	return p
 }
@@ -320,6 +343,13 @@ const (
 	OptionTZDatabaseString OptionCode = 101
 
 	OptionClasslessRouteFormat OptionCode = 121
+	
+	Option82AgentCircuitId = 1
+	Option82AgentRemoteId = 2
+	Option82DocsisDeviceClass = 3
+	// 4 - unused?
+	Option82LinkSelection = 5
+	Option82Radius = 6
 )
 
 /* Notes
